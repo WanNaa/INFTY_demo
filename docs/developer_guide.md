@@ -42,7 +42,7 @@ python -m pip install -e .[examples]
 Run tests:
 
 ```bash
-pytest tests
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests
 ```
 
 Build documentation:

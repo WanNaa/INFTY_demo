@@ -56,7 +56,7 @@ mkdocs serve
 Run the existing tests before opening a pull request:
 
 ```bash
-pytest tests
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests
 ```
 
 For documentation validation:
@@ -65,6 +65,16 @@ For documentation validation:
 mkdocs build --strict
 sphinx-build -b html docs/sphinx docs/sphinx/_build/html
 ```
+
+## CI/CD overview
+
+GitHub Actions automates the main validation and delivery steps for this repository:
+
+- `CI` runs on every pull request, on pushes to `main`, and on manual dispatch. It executes the test suite across supported Python versions, validates the MkDocs and Sphinx documentation builds, and checks source/wheel packaging with `python -m build` plus `twine check`.
+- `Documentation` deploys the MkDocs site to GitHub Pages after successful pushes to `main` when documentation or library files change.
+- `Release` runs on version tags that match `v*`. It verifies that the Git tag matches the built package version, publishes distributions to PyPI through trusted publishing, and creates a GitHub release with the built artifacts attached.
+
+The release workflow expects PyPI trusted publishing to be configured for this repository and the `pypi` GitHub environment to exist before the first tagged release.
 
 ## Pull request checklist
 

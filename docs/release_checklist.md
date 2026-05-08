@@ -27,6 +27,9 @@ Use this checklist before publishing a new INFTY package or paper artifact.
 - [ ] Dependencies are accurate.
 - [ ] Optional example dependencies are accurate.
 - [ ] License metadata is correct.
+- [ ] PyPI trusted publishing is configured for the GitHub `pypi` environment.
+- [ ] Release tag follows the `v*` pattern expected by `.github/workflows/release.yml`.
+- [ ] Release tag version matches the package version embedded in the built distribution.
 
 ## Reproducibility
 
