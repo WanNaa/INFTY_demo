@@ -1,0 +1,50 @@
+INFTY_documentation_package/
+├── README_FOR_MAINTAINERS.md
+├── README_DOCS_SNIPPET.md
+├── CONTRIBUTING.md
+├── mkdocs.yml
+├── requirements-docs.txt
+├── .readthedocs.yml
+├── Makefile.docs
+├── .github/
+│   └── workflows/
+│       └── docs.yml
+├── docs/
+│   ├── index.md
+│   ├── installation.md
+│   ├── quickstart.md
+│   ├── user_guide.md
+│   ├── api_reference.md
+│   ├── examples.md
+│   ├── developer_guide.md
+│   ├── architecture.md
+│   ├── troubleshooting.md
+│   ├── citation.md
+│   ├── roadmap.md
+│   ├── changelog.md
+│   ├── glossary.md
+│   ├── release_checklist.md
+│   ├── _static/
+│   │   └── .gitkeep
+│   └── sphinx/
+│       ├── conf.py
+│       ├── index.rst
+│       ├── installation.rst
+│       ├── user_guide.rst
+│       ├── examples.rst
+│       ├── developer_guide.rst
+│       ├── _static/
+│       │   └── .gitkeep
+│       └── api/
+│           ├── index.rst
+│           ├── optim.rst
+│           ├── plot.rst
+│           ├── analysis.rst
+│           └── utils.rst
+└── examples/
+    └── infty_minimal/
+        ├── README.md
+        ├── minimal_cflat.py
+        ├── minimal_zeroflow.py
+        ├── minimal_unigrad_fs.py
+        └── minimal_visualization.py

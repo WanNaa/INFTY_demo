@@ -1,0 +1,13 @@
+.PHONY: docs docs-serve sphinx-docs clean-docs
+
+docs:
+	mkdocs build --strict
+
+docs-serve:
+	mkdocs serve
+
+sphinx-docs:
+	sphinx-build -b html docs/sphinx docs/sphinx/_build/html
+
+clean-docs:
+	rm -rf site docs/sphinx/_build
