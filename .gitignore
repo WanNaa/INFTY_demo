@@ -63,3 +63,7 @@ workdirs
 *.pth
 *.ckpt
 *.safetensors
+
+# personality
+codex_plan
+Continual_AI.pdf
