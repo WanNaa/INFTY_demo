@@ -1,0 +1,65 @@
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Build and packaging
+build/
+dist/
+site/
+.eggs/
+*.egg
+*.egg-info/
+pip-wheel-metadata/
+src/infty/_version.py
+
+# Coverage and test outputs
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.cover
+*.py,cover
+
+# Project runtime artifacts
+.zlogs/
+zlogs/
+logs/
+data/
+ckp/
+plots/
+wandb/
+*.log
+*.out
+*.err
+commit.sh
+
+# Workdirs runtime artifacts
+workdirs
+
+# Model artifacts
+*.pt
+*.pth
+*.ckpt
+*.safetensors
