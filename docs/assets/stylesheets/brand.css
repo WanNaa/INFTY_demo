@@ -42,6 +42,27 @@
   filter: drop-shadow(0 0 0.35rem rgba(89, 184, 255, 0.22));
 }
 
+.md-typeset table.algo-papers {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.md-typeset table.algo-papers th,
+.md-typeset table.algo-papers td {
+  vertical-align: top;
+  white-space: normal;
+}
+
+.md-typeset table.algo-papers th:nth-child(1),
+.md-typeset table.algo-papers td:nth-child(1) {
+  width: 5.5rem;
+}
+
+.md-typeset table.algo-papers th:nth-child(2),
+.md-typeset table.algo-papers td:nth-child(2) {
+  width: 15rem;
+}
+
 @media screen and (max-width: 76.234375em) {
   .md-header__title {
     padding-right: 1.25rem;
