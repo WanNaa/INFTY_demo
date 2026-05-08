@@ -4,8 +4,6 @@ INFTY is an optimization-centric toolkit for Continual AI. It provides plug-and-
 
 The library is designed for research workflows where users need to replace or augment an existing PyTorch optimizer without rewriting the whole training pipeline.
 
-[PyPI Package](https://pypi.org/project/infty/){ .md-button .md-button--primary }
-
 ## Documentation map
 
 | Page | Purpose |
