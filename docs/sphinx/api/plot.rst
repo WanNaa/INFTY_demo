@@ -2,8 +2,6 @@ infty.plot
 ==========
 
 .. automodule:: infty.plot
-   :members:
-   :undoc-members:
 
 Functions
 ---------

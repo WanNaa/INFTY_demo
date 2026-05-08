@@ -28,6 +28,7 @@ ENV/
 build/
 dist/
 site/
+docs/sphinx/_build/
 .eggs/
 *.egg
 *.egg-info/

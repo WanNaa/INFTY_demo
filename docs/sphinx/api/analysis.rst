@@ -2,8 +2,6 @@ infty.analysis
 ==============
 
 .. automodule:: infty.analysis
-   :members:
-   :undoc-members:
 
 Functions
 ---------

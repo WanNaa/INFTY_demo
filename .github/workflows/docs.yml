@@ -5,14 +5,22 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "src/**"
       - "mkdocs.yml"
+      - ".readthedocs.yml"
       - "requirements-docs.txt"
+      - "pyproject.toml"
+      - "setup.py"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "docs/**"
+      - "src/**"
       - "mkdocs.yml"
+      - ".readthedocs.yml"
       - "requirements-docs.txt"
+      - "pyproject.toml"
+      - "setup.py"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -26,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  docs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -45,6 +53,9 @@ jobs:
       - name: Build MkDocs site
         run: mkdocs build --strict
 
+      - name: Build Sphinx API docs
+        run: sphinx-build -b html docs/sphinx docs/sphinx/_build/html
+
       - name: Upload GitHub Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
@@ -53,7 +64,7 @@ jobs:
 
   deploy:
     if: github.event_name != 'pull_request'
-    needs: build
+    needs: docs
     runs-on: ubuntu-latest
     environment:
       name: github-pages

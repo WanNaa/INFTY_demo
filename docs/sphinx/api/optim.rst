@@ -2,8 +2,6 @@ infty.optim
 ===========
 
 .. automodule:: infty.optim
-   :members:
-   :undoc-members:
    :show-inheritance:
 
 Public Classes
