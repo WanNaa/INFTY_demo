@@ -8,6 +8,7 @@ edit_uri: edit/main/docs/
 theme:
   name: material
   logo: assets/images/logo_mark.svg
+  favicon: assets/images/logo_mark.ico
   custom_dir: docs/overrides
   features:
     - navigation.tabs
