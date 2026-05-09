@@ -171,6 +171,18 @@ INFTY includes built-in visualization tools for inspecting optimization behavior
 - [x] **Hessian ESD**: curvature analysis via eigenvalue spectrum density
 - [x] **Conflict Curves**: quantify gradient interference (supports PCGrad, GradVac, UniGrad_FS, CAGrad)
 - [x] **Optimization Trajectory**: observe optimization directions under gradient shifts with a toy example
+
+Default plot outputs are organized under:
+
+```text
+workdirs/plots/
+  diagnostics/
+  examples/
+  pilot/
+  experiments/
+  custom/
+```
+
 ```python
 from infty import plot as infty_plot
 
@@ -181,7 +193,7 @@ infty_plot.visualize_landscape(
     loader=train_loader,
     task=self._cur_task,
     device=self._device,
-    output_dir="workdirs/plots/landscape/demo",
+    output_dir="workdirs/plots/diagnostics/landscape/demo",
 )
 infty_plot.visualize_esd(
     optimizer=optimizer,
@@ -190,10 +202,10 @@ infty_plot.visualize_esd(
     loader=train_loader,
     task=self._cur_task,
     device=self._device,
-    output_dir="workdirs/plots/esd/demo",
+    output_dir="workdirs/plots/diagnostics/esd/demo",
 )
-infty_plot.visualize_conflicts(optimizer, task=self._cur_task, output_dir="workdirs/plots/conflicts/demo")
-infty_plot.visualize_trajectory("cagrad", output_dir="workdirs/plots/trajectory/demo")
+infty_plot.visualize_conflicts(optimizer, task=self._cur_task, output_dir="workdirs/plots/diagnostics/conflicts/demo")
+infty_plot.visualize_trajectory("cagrad", output_dir="workdirs/plots/diagnostics/trajectory/demo")
 ```
 
 # 📝 Citation

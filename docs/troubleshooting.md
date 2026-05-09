@@ -166,7 +166,7 @@ visualize_trajectory(..., n_iter=200, grid_size=100)
 All plotting functions accept `output_dir`. Pass an explicit directory:
 
 ```python
-output_dir="workdirs/plots/my_experiment"
+output_dir="workdirs/plots/custom/my_experiment"
 ```
 
 Most plotting functions return a dictionary or path containing the saved artifact location. Print the return value.

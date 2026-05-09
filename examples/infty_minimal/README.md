@@ -11,6 +11,12 @@ python examples/infty_minimal/minimal_unigrad_fs.py
 python examples/infty_minimal/minimal_visualization.py
 ```
 
+The visualization example writes its artifact under:
+
+```text
+workdirs/plots/examples/infty_minimal/trajectory/
+```
+
 Each optimizer example uses a toy dataset and a tiny neural network. The key point is the closure format:
 
 ```python

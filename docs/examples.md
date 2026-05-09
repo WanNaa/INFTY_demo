@@ -102,7 +102,7 @@ result = infty_plot.visualize_landscape(
     loader=train_loader,
     task=task_id,
     device=device,
-    output_dir="workdirs/plots/landscape/demo",
+    output_dir="workdirs/plots/diagnostics/landscape/demo",
 )
 print(result["plot_path"])
 ```
@@ -115,7 +115,7 @@ from infty import plot as infty_plot
 result = infty_plot.visualize_conflicts(
     optimizer=optimizer,
     task=task_id,
-    output_dir="workdirs/plots/conflicts/demo",
+    output_dir="workdirs/plots/diagnostics/conflicts/demo",
 )
 print(result)
 ```

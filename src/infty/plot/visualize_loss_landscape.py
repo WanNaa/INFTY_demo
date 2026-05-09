@@ -9,10 +9,10 @@ import torch
 import tqdm
 
 from infty.utils.hessian import hessian
+from .paths import DEFAULT_LANDSCAPE_DIR, ensure_parent_dir
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "workdirs" / "plots" / "landscape"
+DEFAULT_OUTPUT_DIR = DEFAULT_LANDSCAPE_DIR
 
 
 def get_params(model_ori, model_perb, direction, alpha, beta, device):
@@ -38,7 +38,6 @@ def visualize_loss_landscape(
     output_dir = output_dir.expanduser().resolve()
     optimizer_name = getattr(optimizer, "name", optimizer.__class__.__name__.lower())
     save_dir = output_dir / optimizer_name
-    save_dir.mkdir(parents=True, exist_ok=True)
 
     lams_alpha = np.linspace(-limit, limit, samples).astype(np.float32)
     lams_beta = np.linspace(-limit, limit, samples).astype(np.float32)
@@ -70,7 +69,7 @@ def visualize_loss_landscape(
                     f"top_eigenvalues_task{task}": top_eigenvalues,
                     f"top_eigenvector_task{task}": top_eigenvector,
                 },
-                eigen_path,
+                ensure_parent_dir(eigen_path),
             )
 
         loss_path = save_dir / f"loss_list_task{task}.pt"
@@ -96,7 +95,7 @@ def visualize_loss_landscape(
                         total_loss += sum(loss_list).item()
                     row_loss_list.append(total_loss / len(loader))
                 total_loss_list.append(row_loss_list)
-            torch.save({f"loss_list_task{task}": total_loss_list}, loss_path)
+            torch.save({f"loss_list_task{task}": total_loss_list}, ensure_parent_dir(loss_path))
             print(f"[Landscape] Loss surface saved to {loss_path}")
 
         plt.clf()
@@ -117,6 +116,7 @@ def visualize_loss_landscape(
 
         figure_path = save_dir / f"loss_surface_task{task}.pdf"
         plt.tight_layout()
+        ensure_parent_dir(figure_path)
         plt.savefig(figure_path)
         plt.close(fig)
         return {

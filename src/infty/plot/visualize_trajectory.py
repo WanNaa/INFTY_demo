@@ -8,6 +8,8 @@ import torch.nn as nn
 from matplotlib import cm
 from pathlib import Path
 
+from .paths import DEFAULT_TRAJECTORY_DIR, ensure_parent_dir
+
 try:
     from scipy.optimize import minimize_scalar
 except ImportError:
@@ -19,8 +21,7 @@ except ImportError:
 #
 ################################################################################
 LOWER = 0.000005
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "workdirs" / "plots" / "trajectory"
+DEFAULT_OUTPUT_DIR = DEFAULT_TRAJECTORY_DIR
 
 class Toy(nn.Module):
     def __init__(self):
@@ -152,8 +153,8 @@ def plot_contour(F, init, traj, trainer, output_dir=None, save_path=None, plotba
         spine.set_linewidth(2)
 
     plt.tight_layout()
-    output_dir.mkdir(parents=True, exist_ok=True)
     figure_path = output_dir / f"traj_{trainer}.pdf"
+    ensure_parent_dir(figure_path)
     plt.savefig(figure_path)
 
     

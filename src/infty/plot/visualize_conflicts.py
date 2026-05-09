@@ -4,9 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from .paths import DEFAULT_CONFLICTS_DIR, ensure_parent_dir
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "workdirs" / "plots" / "conflicts"
+
+DEFAULT_OUTPUT_DIR = DEFAULT_CONFLICTS_DIR
 
 
 def _get_similarity_values(optimizer):
@@ -29,10 +30,10 @@ def visualize_conflicts(optimizer, task=None, output_dir=None, task_id=None, dir
 
     optimizer_name = getattr(optimizer, "name", optimizer.__class__.__name__.lower())
     save_dir = output_dir / optimizer_name
-    save_dir.mkdir(parents=True, exist_ok=True)
 
     sim_values = _get_similarity_values(optimizer)
     sim_path = save_dir / f"sim_list_task{task}.pt"
+    ensure_parent_dir(sim_path)
     torch.save(sim_values.tolist(), sim_path)
 
     if task <= 0:
@@ -40,6 +41,7 @@ def visualize_conflicts(optimizer, task=None, output_dir=None, task_id=None, dir
 
     if sim_values.size == 0:
         warning_path = save_dir / f"warning_task{task}.txt"
+        ensure_parent_dir(warning_path)
         warning_path.write_text("No similarity values were recorded for conflict visualization.\n", encoding="utf-8")
         return {
             "optimizer_name": optimizer_name,
@@ -81,6 +83,7 @@ def visualize_conflicts(optimizer, task=None, output_dir=None, task_id=None, dir
     )
 
     plt.tight_layout()
+    ensure_parent_dir(figure_path)
     plt.savefig(figure_path, dpi=300, bbox_inches="tight")
     plt.close()
 

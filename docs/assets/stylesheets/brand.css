@@ -1,6 +1,7 @@
 .md-header__title {
   box-sizing: border-box;
   min-width: 0;
+  margin-left: -0.4rem;
   padding-right: 1rem;
 }
 
@@ -23,6 +24,18 @@
 .infty-brand__name {
   flex: 0 0 auto;
   letter-spacing: 0.02em;
+}
+
+.infty-brand__home {
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.infty-brand__home:hover,
+.infty-brand__home:focus-visible {
+  color: inherit;
 }
 
 .infty-brand__tagline {
@@ -65,6 +78,7 @@
 
 @media screen and (max-width: 76.234375em) {
   .md-header__title {
+    margin-left: -0.25rem;
     padding-right: 1.25rem;
   }
 
@@ -74,6 +88,10 @@
 }
 
 @media screen and (max-width: 59.984375em) {
+  .md-header__title {
+    margin-left: 0;
+  }
+
   .infty-brand__lockup {
     gap: 0.3rem;
   }

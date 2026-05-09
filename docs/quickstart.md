@@ -154,7 +154,7 @@ visualize_trajectory(
     optimizer_name="adam",
     n_iter=500,
     lr=0.1,
-    output_dir="workdirs/plots/trajectory/demo",
+    output_dir="workdirs/plots/diagnostics/trajectory/demo",
     grid_size=200,
 )
 ```

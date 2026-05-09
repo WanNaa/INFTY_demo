@@ -13,9 +13,10 @@ import torch
 
 from infty.utils.hessian import hessian
 
+from .paths import DEFAULT_ESD_DIR, ensure_parent_dir
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "workdirs" / "plots" / "esd"
+
+DEFAULT_OUTPUT_DIR = DEFAULT_ESD_DIR
 
 
 def visualize_esd(optimizer, model, create_loss_fn, loader, task, device, output_dir=None, dir_path=None):
@@ -23,7 +24,6 @@ def visualize_esd(optimizer, model, create_loss_fn, loader, task, device, output
     output_dir = output_dir.expanduser().resolve()
     optimizer_name = getattr(optimizer, "name", optimizer.__class__.__name__.lower())
     save_dir = output_dir / optimizer_name
-    save_dir.mkdir(parents=True, exist_ok=True)
 
     was_training = model.training
     state_backup = {k: v.detach().clone() for k, v in model.state_dict().items()}
@@ -42,6 +42,7 @@ def visualize_esd(optimizer, model, create_loss_fn, loader, task, device, output
             trace = hessian_comp.trace()
             mean_trace = np.mean(trace)
             print(f"[ESD] Mean Hessian trace: {mean_trace:.4f}")
+            ensure_parent_dir(trace_path)
             torch.save({"mean_trace": mean_trace}, trace_path)
         else:
             trace = torch.load(trace_path, map_location="cpu")
@@ -54,6 +55,7 @@ def visualize_esd(optimizer, model, create_loss_fn, loader, task, device, output
         if not esd_path.exists():
             print(f"[ESD] Estimating Empirical Spectral Density (ESD) for task {task}...")
             density_eigen, density_weight = hessian_comp.density()
+            ensure_parent_dir(esd_path)
             torch.save({"density_eigen": density_eigen, "density_weight": density_weight}, esd_path)
             print(f"[ESD] ESD data saved to '{esd_path}'.")
         else:
@@ -63,6 +65,7 @@ def visualize_esd(optimizer, model, create_loss_fn, loader, task, device, output
             density_weight = esd_data["density_weight"]
 
         print(f"[ESD] Plotting ESD for task {task}...")
+        ensure_parent_dir(fig_path)
         get_esd_plot(density_eigen, density_weight, fig_path)
         print(f"[ESD] Done.\n{'=' * 30}")
         return {

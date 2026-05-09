@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from infty.plot.paths import ensure_parent_dir
 from infty.utils.running import fast_random_mask_like
 
 
@@ -312,17 +313,17 @@ def aggregate_records(records):
 
 def save_records_as_json(output_path, payload):
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_parent_dir(output_path)
     with output_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, ensure_ascii=False)
 
 
 def save_records_as_csv(output_path, rows):
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     rows = list(rows)
     if not rows:
         return
+    ensure_parent_dir(output_path)
     fieldnames = list(rows[0].keys())
     with output_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -332,7 +333,6 @@ def save_records_as_csv(output_path, rows):
 
 def plot_summary_records(summary_records, output_dir, title_prefix="Surrogate Gradient Quality"):
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     if not summary_records:
         return []
 
@@ -341,6 +341,7 @@ def plot_summary_records(summary_records, output_dir, title_prefix="Surrogate Gr
             import matplotlib.pyplot as plt
     except Exception as exc:
         warning_path = output_dir / "plot_warning.txt"
+        ensure_parent_dir(warning_path)
         warning_path.write_text(
             f"Plot generation skipped because matplotlib could not be imported:\n{exc}\n",
             encoding="utf-8",
@@ -409,7 +410,9 @@ def plot_summary_records(summary_records, output_dir, title_prefix="Surrogate Gr
 
     pdf_path = output_dir / "surrogate_quality_summary.pdf"
     png_path = output_dir / "surrogate_quality_summary.png"
+    ensure_parent_dir(pdf_path)
     fig.savefig(pdf_path, bbox_inches="tight")
+    ensure_parent_dir(png_path)
     fig.savefig(png_path, bbox_inches="tight", dpi=300)
     plt.close(fig)
     return [str(pdf_path), str(png_path)]

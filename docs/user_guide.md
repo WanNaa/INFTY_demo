@@ -216,7 +216,7 @@ infty_plot.visualize_landscape(
     loader=train_loader,
     task=task_id,
     device=device,
-    output_dir="workdirs/plots/landscape/demo",
+    output_dir="workdirs/plots/diagnostics/landscape/demo",
 )
 ```
 
@@ -230,7 +230,7 @@ infty_plot.visualize_esd(
     loader=train_loader,
     task=task_id,
     device=device,
-    output_dir="workdirs/plots/esd/demo",
+    output_dir="workdirs/plots/diagnostics/esd/demo",
 )
 ```
 
@@ -240,7 +240,7 @@ infty_plot.visualize_esd(
 infty_plot.visualize_conflicts(
     optimizer=optimizer,
     task=task_id,
-    output_dir="workdirs/plots/conflicts/demo",
+    output_dir="workdirs/plots/diagnostics/conflicts/demo",
 )
 ```
 
@@ -251,7 +251,7 @@ The optimizer must expose `sim_list` or `sim_arr`. `UniGrad_FS` records similari
 ```python
 infty_plot.visualize_trajectory(
     optimizer_name="cagrad",
-    output_dir="workdirs/plots/trajectory/demo",
+    output_dir="workdirs/plots/diagnostics/trajectory/demo",
 )
 ```
 
