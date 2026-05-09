@@ -5,6 +5,9 @@ repo_url: https://github.com/WanNaa/INFTY_demo
 repo_name: WanNaa/INFTY_demo
 edit_uri: edit/main/docs/
 
+extra:
+  browser_title: INFTY Docs
+
 theme:
   name: material
   logo: assets/images/logo_mark.svg
