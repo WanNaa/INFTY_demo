@@ -1,4 +1,0 @@
-interface:
-  display_name: "INFTY Project"
-  short_description: "Project-specific guidance for working in the INFTY repository."
-  default_prompt: "Use the INFTY project skill to follow repository-specific environment and workflow conventions."
