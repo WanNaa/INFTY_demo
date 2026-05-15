@@ -189,10 +189,10 @@ Recommended minimal tests:
 - one-step optimizer tests on a tiny neural network;
 - closure-shape tests;
 - serialization tests for wrapped base optimizers;
-- plot smoke tests using small grid sizes;
-- analysis smoke tests using one tiny batch.
+- plot regression tests using small grid sizes;
+- analysis regression tests using one tiny batch.
 
-Example optimizer smoke test:
+Example optimizer regression test:
 
 ```python
 def test_cflat_one_step():

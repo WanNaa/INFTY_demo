@@ -49,6 +49,8 @@ def get_infty_optimizer(params, base_optimizer, model, args):
         return infty_optim.GradVac(params=params, base_optimizer=base_optimizer, model=model, args=args)
     elif name == "cagrad":
         return infty_optim.CAGrad(params=params, base_optimizer=base_optimizer, model=model, args=args)
+    elif name == "unigrad":
+        return infty_optim.UniGrad(params=params, base_optimizer=base_optimizer, model=model, args=args)
     elif name == "unigrad_fs":
         return infty_optim.UniGrad_FS(params=params, base_optimizer=base_optimizer, model=model, args=args)
     elif name == "ogd":

@@ -6,6 +6,7 @@ from backbone.linears import SimpleLinear, SplitCosineLinear, CosineLinear, Ease
 from backbone.prompt import CodaPrompt
 from backbone.resnet_memo import get_resnet18_imagenet as get_memo_resnet18 #for MEMO imagenet
 from backbone.resnet_memo import get_resnet32_a2fc as get_memo_resnet32 #for MEMO cifar
+from backbone.cifar_resnet import resnet32
 from backbone.resnet import resnet18, resnet34
 import timm
 
@@ -238,6 +239,8 @@ def get_backbone(args, pretrained=False):
             else:
                 raise NotImplementedError("Unknown type {}".format(name))
             return model
+    elif name == "resnet32":
+        return resnet32()
     elif name == "resnet18":
         return resnet18(pretrained=pretrained,args=args)
     elif name == "resnet34":

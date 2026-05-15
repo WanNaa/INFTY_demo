@@ -317,15 +317,15 @@ class BaseLearner(object):
     
     def _reduce_exemplar(self, data_manager, m):
         logging.info("Reducing exemplars...({} per classes)".format(m))
-        dummy_data, dummy_targets = copy.deepcopy(self._data_memory), copy.deepcopy(
+        cached_data, cached_targets = copy.deepcopy(self._data_memory), copy.deepcopy(
             self._targets_memory
         )
         self._class_means = np.zeros((self._total_classes, self.feature_dim))
         self._data_memory, self._targets_memory = np.array([]), np.array([])
 
         for class_idx in range(self._known_classes):
-            mask = np.where(dummy_targets == class_idx)[0]
-            dd, dt = dummy_data[mask][:m], dummy_targets[mask][:m]
+            mask = np.where(cached_targets == class_idx)[0]
+            dd, dt = cached_data[mask][:m], cached_targets[mask][:m]
             self._data_memory = (
                 np.concatenate((self._data_memory, dd))
                 if len(self._data_memory) != 0

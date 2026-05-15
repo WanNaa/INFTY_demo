@@ -379,10 +379,11 @@ class Learner(BaseLearner):
         # for update the subspace basis
         optimizer.post_process(train_loader)
 
-        # if len(self._multiple_gpus) > 1:
-        #     self._network.module.weight_align(self._total_classes-self._known_classes)
-        # else:
-        #     self._network.weight_align(self._total_classes-self._known_classes)
+        if self._cur_task > 0 and self.args.get("enable_weight_align", False):
+            if len(self._multiple_gpus) > 1:
+                self._network.module.weight_align(self._total_classes - self._known_classes)
+            else:
+                self._network.weight_align(self._total_classes - self._known_classes)
 
         # Optional: infty plots
         # infty_plot.visualize_loss_landscape(optimizer, self._network, self.create_loss_fn, train_loader, self._cur_task, self._device)

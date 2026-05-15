@@ -1,7 +1,7 @@
 import torch
 
 
-def test_sam_step_smoke():
+def test_sam_step_updates_parameters():
     from infty.optim import SAM
 
     torch.manual_seed(0)

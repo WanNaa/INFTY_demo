@@ -2,11 +2,16 @@ import pytest
 import torch
 
 
-@pytest.mark.parametrize("optimizer_name", ["gradvac", "unigrad_fs"])
-def test_conflict_optimizers_expose_sim_list_and_expand_thresholds(optimizer_name):
-    from infty.optim import GradVac, UniGrad_FS
+@pytest.mark.parametrize("optimizer_name", ["gradvac", "unigrad", "unigrad_fs"])
+def test_conflict_optimizers_expose_sim_list_expand_thresholds_and_record_diagnostics(optimizer_name):
+    from infty.optim import GradVac, UniGrad, UniGrad_FS
 
-    optimizer_cls = GradVac if optimizer_name == "gradvac" else UniGrad_FS
+    optimizer_map = {
+        "gradvac": GradVac,
+        "unigrad": UniGrad,
+        "unigrad_fs": UniGrad_FS,
+    }
+    optimizer_cls = optimizer_map[optimizer_name]
     torch.manual_seed(0)
     model = torch.nn.Linear(4, 1)
     base_optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
@@ -32,3 +37,7 @@ def test_conflict_optimizers_expose_sim_list_and_expand_thresholds(optimizer_nam
 
     assert len(optimizer.sim_list) == len(optimizer.k_idx)
     assert optimizer.S_T.numel() == len(optimizer.k_idx)
+    assert len(optimizer.conflict_records) == len(optimizer.k_idx)
+    assert optimizer.conflict_records[0]["task"] == 1
+    assert "cos_before" in optimizer.conflict_records[0]
+    assert "cos_after" in optimizer.conflict_records[0]

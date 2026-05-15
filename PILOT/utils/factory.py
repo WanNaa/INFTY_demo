@@ -18,8 +18,14 @@ def get_model(model_name, args):
         from models.coda_prompt import Learner
     elif name == "finetune":
         from models.finetune import Learner
+    elif name == "replay":
+        from models.replay import Learner
+    elif name == "wa":
+        from models.wa import Learner
     elif name == "icarl":
         from models.icarl import Learner
+    elif name == "podnet":
+        from models.podnet import Learner
     elif name == "der":
         from models.der import Learner
     elif name == "coil":

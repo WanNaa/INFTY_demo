@@ -29,6 +29,7 @@ GRADIENT_FILTERING_OPTIMIZERS = {
     "pcgrad",
     "gradvac",
     "cagrad",
+    "unigrad",
     "unigrad_fs",
     "ogd",
 }

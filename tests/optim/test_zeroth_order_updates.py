@@ -1,7 +1,7 @@
 import torch
 
 
-def test_zeroflow_smoke_no_backward_required():
+def test_zeroflow_step_updates_parameters_without_backward():
     from infty.optim import ZeroFlow
 
     torch.manual_seed(0)

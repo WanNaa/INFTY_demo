@@ -1,17 +1,20 @@
-import torch
 import random
-from infty.optim.gradient_filtering.base import EasyCLMultiObjOptimizer
+
+import torch
 from types import SimpleNamespace
+
+from infty.optim.gradient_filtering.base import EasyCLMultiObjOptimizer
 
 class PCGrad(EasyCLMultiObjOptimizer):
     def __init__(self, params, base_optimizer, model, args, **kwargs):
         default_args = {
+            "task_id": 0,
         }
         merged_args = {**default_args, **args}
         args_ns = SimpleNamespace(**merged_args)
         super().__init__(params, base_optimizer, model, **kwargs)
         self.name = "pcgrad"
-        self.sim_list = []
+        self.task_id = args_ns.task_id
 
 
     def step(self, closure=None, delay=False):
@@ -25,7 +28,7 @@ class PCGrad(EasyCLMultiObjOptimizer):
         self._compute_grad_dim()
         grads = self._compute_grad(loss_list, mode='backward')
         similarity = self.get_similarity(grads)
-        self.sim_list.append(similarity.cpu().numpy())
+        self._append_similarity(similarity)
 
         pc_grads = grads.clone()
         for obj_i in range(obj_num):
@@ -37,6 +40,16 @@ class PCGrad(EasyCLMultiObjOptimizer):
                 if g_ij < 0:
                     pc_grads[obj_i] -= g_ij * grads[obj_j] / (grads[obj_j].norm().pow(2)+1e-8)
         new_grads = pc_grads.sum(0)
+        if obj_num > 1:
+            self._record_pairwise_conflicts(
+                grads,
+                grads_after=pc_grads,
+                task=self.task_id,
+                iteration=self._current_conflict_iteration(),
+                block=0,
+                update_vector=new_grads,
+            )
+            self._advance_conflict_iteration()
         self._reset_grad(new_grads)
         if not delay:
             self.base_optimizer.step()

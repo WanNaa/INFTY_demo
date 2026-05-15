@@ -3,6 +3,7 @@ import io
 import json
 from collections import defaultdict
 from contextlib import redirect_stderr, redirect_stdout
+from itertools import product
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +17,14 @@ def _safe_float(value):
     if torch.is_tensor(value):
         return float(value.detach().item())
     return float(value)
+
+
+def _serialize_gradient_sparsity(gradient_sparsity):
+    if gradient_sparsity is None:
+        return "none"
+    if isinstance(gradient_sparsity, dict):
+        return json.dumps(gradient_sparsity, sort_keys=True)
+    return gradient_sparsity
 
 
 def _flatten_tensors(tensors):
@@ -173,6 +182,47 @@ def _compute_loss_after_step(objective_fn, params, direction_tensors, step_size)
     return loss_after, loss_components_after
 
 
+def summarize_surrogate_estimates(fo_flat, zo_samples, base_loss, loss_after_fo, loss_after_zo):
+    fo_flat = fo_flat.detach().reshape(-1).to(dtype=torch.float64)
+    zo_samples = zo_samples.detach().to(dtype=torch.float64)
+    if zo_samples.ndim == 1:
+        zo_samples = zo_samples.unsqueeze(0)
+    elif zo_samples.ndim != 2:
+        raise ValueError(f"zo_samples must be a 1D or 2D tensor, got shape {tuple(zo_samples.shape)}.")
+
+    eps = 1e-12
+    zo_mean_flat = zo_samples.mean(dim=0)
+    centered = zo_samples - zo_mean_flat.unsqueeze(0)
+    variance_trace = centered.pow(2).sum(dim=1).mean()
+    variance_mean_coordinate = centered.pow(2).mean()
+
+    fo_norm = fo_flat.norm(p=2)
+    zo_norm = zo_mean_flat.norm(p=2)
+    cosine = torch.dot(fo_flat, zo_mean_flat) / (fo_norm * zo_norm + eps)
+    relative_l2_error = (zo_mean_flat - fo_flat).norm(p=2) / (fo_norm + eps)
+    sign_agreement = (zo_mean_flat.sign() == fo_flat.sign()).to(dtype=torch.float64).mean()
+    snr = zo_mean_flat.pow(2).sum() / (variance_trace + eps)
+
+    loss_decrease_fo = float(base_loss - loss_after_fo)
+    loss_decrease_zo = float(base_loss - loss_after_zo)
+
+    return {
+        "fo_grad_norm": float(_safe_float(fo_norm)),
+        "zo_grad_norm": float(_safe_float(zo_norm)),
+        "cosine_similarity": float(_safe_float(cosine)),
+        "norm_ratio": float(_safe_float(zo_norm / (fo_norm + eps))),
+        "relative_l2_error": float(_safe_float(relative_l2_error)),
+        "sign_agreement": float(_safe_float(sign_agreement)),
+        "variance_trace": float(_safe_float(variance_trace)),
+        "variance_mean_coordinate": float(_safe_float(variance_mean_coordinate)),
+        "snr": float(_safe_float(snr)),
+        "loss_decrease_fo": loss_decrease_fo,
+        "loss_decrease_zo": loss_decrease_zo,
+        "loss_decrease_ratio": float(loss_decrease_zo / (loss_decrease_fo + eps)),
+        "descent_success_zo": float(loss_after_zo < base_loss),
+    }
+
+
 def analyze_surrogate_batch(
     objective_fn,
     model,
@@ -225,14 +275,7 @@ def analyze_surrogate_batch(
         zo_mean_tensors.append(zo_mean_flat[cursor:next_cursor].view_as(param).detach().clone())
         cursor = next_cursor
 
-    centered = zo_stack - zo_mean_flat.unsqueeze(0)
-    variance_trace = centered.pow(2).sum(dim=1).mean()
-    variance_mean_coordinate = centered.pow(2).mean()
-
     fo_flat = first_order["grad_flat"]
-    fo_norm = fo_flat.norm(p=2)
-    zo_norm = zo_mean_flat.norm(p=2)
-    cosine = torch.dot(fo_flat, zo_mean_flat) / (fo_norm * zo_norm + 1e-12)
 
     base_loss = first_order["loss"]
     loss_after_fo, fo_components_after = _compute_loss_after_step(
@@ -242,21 +285,22 @@ def analyze_surrogate_batch(
         objective_fn, params, zo_mean_tensors, step_size
     )
 
+    summary_metrics = summarize_surrogate_estimates(
+        fo_flat=fo_flat,
+        zo_samples=zo_stack,
+        base_loss=base_loss,
+        loss_after_fo=loss_after_fo,
+        loss_after_zo=loss_after_zo,
+    )
+
     return {
         "base_loss": float(base_loss),
         "loss_components": first_order["loss_components"],
         "fo_grad_norm": float(first_order["grad_norm"]),
-        "zo_grad_norm": float(_safe_float(zo_norm)),
-        "cosine_similarity": float(_safe_float(cosine)),
-        "norm_ratio": float(_safe_float(zo_norm / (fo_norm + 1e-12))),
-        "variance_trace": float(_safe_float(variance_trace)),
-        "variance_mean_coordinate": float(_safe_float(variance_mean_coordinate)),
         "projected_grad_mean": float(np.mean([estimate["projected_grad_mean"] for estimate in zo_estimates])),
         "projected_grad_std": float(np.mean([estimate["projected_grad_std"] for estimate in zo_estimates])),
         "loss_after_fo_step": float(loss_after_fo),
         "loss_after_zo_step": float(loss_after_zo),
-        "loss_decrease_fo": float(base_loss - loss_after_fo),
-        "loss_decrease_zo": float(base_loss - loss_after_zo),
         "loss_components_after_fo_step": [float(x) for x in fo_components_after],
         "loss_components_after_zo_step": [float(x) for x in zo_components_after],
         "variance_seeds": int(variance_seeds),
@@ -265,6 +309,8 @@ def analyze_surrogate_batch(
         "step_size": float(step_size),
         "perturbation_mode": perturbation_mode,
         "estimator_name": estimator_name,
+        "gradient_sparsity": _serialize_gradient_sparsity(gradient_sparsity),
+        **summary_metrics,
     }
 
 
@@ -274,7 +320,17 @@ def aggregate_records(records):
 
     grouped = defaultdict(list)
     for record in records:
-        grouped[(record["task"], record["split"])].append(record)
+        grouped[
+            (
+                record["task"],
+                record["split"],
+                record.get("estimator_name", "unknown"),
+                record.get("perturbation_mode", "unknown"),
+                int(record.get("q", 1)),
+                float(record.get("zo_eps", 0.0)),
+                record.get("gradient_sparsity", "none"),
+            )
+        ].append(record)
 
     metric_keys = [
         "base_loss",
@@ -282,21 +338,39 @@ def aggregate_records(records):
         "zo_grad_norm",
         "cosine_similarity",
         "norm_ratio",
+        "relative_l2_error",
+        "sign_agreement",
         "variance_trace",
         "variance_mean_coordinate",
+        "snr",
         "projected_grad_mean",
         "projected_grad_std",
         "loss_after_fo_step",
         "loss_after_zo_step",
         "loss_decrease_fo",
         "loss_decrease_zo",
+        "loss_decrease_ratio",
+        "descent_success_zo",
     ]
 
     summaries = []
-    for (task, split), split_records in sorted(grouped.items()):
+    for (
+        task,
+        split,
+        estimator_name,
+        perturbation_mode,
+        q,
+        zo_eps,
+        gradient_sparsity,
+    ), split_records in sorted(grouped.items()):
         summary = {
             "task": int(task),
             "split": split,
+            "estimator_name": estimator_name,
+            "perturbation_mode": perturbation_mode,
+            "q": int(q),
+            "zo_eps": float(zo_eps),
+            "gradient_sparsity": gradient_sparsity,
             "objective_type": split_records[0].get("objective_type", "unknown"),
             "split_source": split_records[0].get("split_source", "unknown"),
             "num_batches": len(split_records),
@@ -349,9 +423,17 @@ def plot_summary_records(summary_records, output_dir, title_prefix="Surrogate Gr
         return [str(warning_path)]
 
     plt.style.use("seaborn-v0_8-whitegrid")
-    split_groups = defaultdict(list)
+    config_groups = defaultdict(list)
+    configs_per_split = defaultdict(set)
     for record in summary_records:
-        split_groups[record["split"]].append(record)
+        key = (
+            record["split"],
+            record.get("q", 1),
+            record.get("zo_eps", 0.0),
+            record.get("gradient_sparsity", "none"),
+        )
+        config_groups[key].append(record)
+        configs_per_split[record["split"]].add(key)
 
     colors = {
         "current_task_train": "#1f77b4",
@@ -360,51 +442,42 @@ def plot_summary_records(summary_records, output_dir, title_prefix="Surrogate Gr
         "old_task_validation": "#f58518",
     }
 
-    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True)
+    linestyles = ["-", "--", ":", "-."]
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharex=True)
     metric_specs = [
         ("cosine_similarity_mean", "Cosine Similarity", axes[0, 0]),
-        ("norm_ratio_mean", "Norm Ratio", axes[0, 1]),
+        ("relative_l2_error_mean", "Relative L2 Error", axes[0, 1]),
+        ("snr_mean", "SNR", axes[0, 2]),
         ("variance_trace_mean", "Estimator Variance", axes[1, 0]),
+        ("loss_decrease_ratio_mean", "Loss Decrease Ratio", axes[1, 1]),
+        ("descent_success_zo_mean", "ZO Descent Success", axes[1, 2]),
     ]
 
-    for split, records in split_groups.items():
+    for config_index, ((split, q, zo_eps, gradient_sparsity), records) in enumerate(sorted(config_groups.items())):
         records = sorted(records, key=lambda item: item["task"])
         tasks = [record["task"] for record in records]
         color = colors.get(split, None)
+        linestyle = linestyles[config_index % len(linestyles)]
+        if len(configs_per_split[split]) == 1:
+            label = split
+        else:
+            label = f"{split} | q={q}, eps={zo_eps:g}, sparsity={gradient_sparsity}"
         for metric_key, ylabel, axis in metric_specs:
-            axis.plot(tasks, [record[metric_key] for record in records], marker="o", linewidth=2, label=split, color=color)
+            axis.plot(
+                tasks,
+                [record[metric_key] for record in records],
+                marker="o",
+                linewidth=2,
+                label=label,
+                color=color,
+                linestyle=linestyle,
+            )
             axis.set_ylabel(ylabel)
             axis.set_xlabel("Task")
-
-    loss_axis = axes[1, 1]
-    for split, records in split_groups.items():
-        records = sorted(records, key=lambda item: item["task"])
-        tasks = [record["task"] for record in records]
-        color = colors.get(split, None)
-        loss_axis.plot(
-            tasks,
-            [record["loss_decrease_fo_mean"] for record in records],
-            marker="o",
-            linewidth=2,
-            linestyle="-",
-            label=f"{split} FO",
-            color=color,
-        )
-        loss_axis.plot(
-            tasks,
-            [record["loss_decrease_zo_mean"] for record in records],
-            marker="s",
-            linewidth=2,
-            linestyle="--",
-            label=f"{split} ZO",
-            color=color,
-        )
-    loss_axis.set_ylabel("True Loss Decrease")
-    loss_axis.set_xlabel("Task")
+    axes[1, 2].set_ylim(-0.05, 1.05)
 
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    handles_loss, labels_loss = loss_axis.get_legend_handles_labels()
-    fig.legend(handles + handles_loss, labels + labels_loss, loc="upper center", ncol=2, frameon=False)
+    fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False)
     fig.suptitle(title_prefix, fontsize=14, y=0.98)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
 
@@ -416,3 +489,125 @@ def plot_summary_records(summary_records, output_dir, title_prefix="Surrogate Gr
     fig.savefig(png_path, bbox_inches="tight", dpi=300)
     plt.close(fig)
     return [str(pdf_path), str(png_path)]
+
+
+def plot_sweep_records(summary_records, output_dir, title_prefix="ZO Query / Eps / Sparsity Sweep"):
+    output_dir = Path(output_dir)
+    if not summary_records:
+        return []
+
+    try:
+        with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+            import matplotlib.pyplot as plt
+    except Exception as exc:
+        warning_path = output_dir / "sweep_plot_warning.txt"
+        ensure_parent_dir(warning_path)
+        warning_path.write_text(
+            f"Sweep plot generation skipped because matplotlib could not be imported:\n{exc}\n",
+            encoding="utf-8",
+        )
+        return [str(warning_path)]
+
+    grouped = defaultdict(list)
+    for record in summary_records:
+        grouped[
+            (
+                record["task"],
+                record["split"],
+                record.get("zo_eps", 0.0),
+                record.get("gradient_sparsity", "none"),
+            )
+        ].append(record)
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharex=True)
+    metric_specs = [
+        ("cosine_similarity_mean", "Cosine Similarity", axes[0]),
+        ("variance_trace_mean", "Estimator Variance", axes[1]),
+        ("loss_decrease_ratio_mean", "Loss Decrease Ratio", axes[2]),
+    ]
+
+    for (task, split, zo_eps, gradient_sparsity), records in sorted(grouped.items()):
+        records = sorted(records, key=lambda item: item.get("q", 1))
+        q_values = [record.get("q", 1) for record in records]
+        label = f"task={task} | {split} | eps={zo_eps:g} | sparsity={gradient_sparsity}"
+        for metric_key, ylabel, axis in metric_specs:
+            axis.plot(q_values, [record[metric_key] for record in records], marker="o", linewidth=2, label=label)
+            axis.set_xlabel("q")
+            axis.set_ylabel(ylabel)
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=1, frameon=False)
+    fig.suptitle(title_prefix, fontsize=14, y=1.05)
+    fig.tight_layout(rect=[0, 0, 1, 0.88])
+
+    pdf_path = output_dir / "zo_sweep_q_eps_sparsity.pdf"
+    png_path = output_dir / "zo_sweep_q_eps_sparsity.png"
+    ensure_parent_dir(pdf_path)
+    fig.savefig(pdf_path, bbox_inches="tight")
+    ensure_parent_dir(png_path)
+    fig.savefig(png_path, bbox_inches="tight", dpi=300)
+    plt.close(fig)
+    return [str(pdf_path), str(png_path)]
+
+
+def run_surrogate_sweep(
+    objective_fn,
+    model,
+    output_dir,
+    *,
+    task=0,
+    split="diagnostic",
+    q_values=(1, 2, 4, 8),
+    eps_values=(1e-4, 3e-4, 1e-3, 3e-3, 1e-2),
+    sparsity_values=(None,),
+    estimator_name="zo_sgd",
+    perturbation_mode="two_side",
+    variance_seeds=4,
+    random_seed=0,
+    step_size=1e-3,
+    metadata=None,
+):
+    output_dir = Path(output_dir)
+    metadata = dict(metadata or {})
+    records = []
+
+    for config_index, (q, zo_eps, gradient_sparsity) in enumerate(product(q_values, eps_values, sparsity_values)):
+        record = analyze_surrogate_batch(
+            objective_fn=objective_fn,
+            model=model,
+            estimator_name=estimator_name,
+            zo_eps=zo_eps,
+            perturbation_mode=perturbation_mode,
+            q=q,
+            variance_seeds=variance_seeds,
+            random_seed=int(random_seed) + config_index * 1009,
+            step_size=step_size,
+            gradient_sparsity=gradient_sparsity,
+        )
+        record.update({"task": int(task), "split": split, **metadata})
+        records.append(record)
+
+    summary_records = aggregate_records(records)
+
+    records_json_path = output_dir / "surrogate_quality_records.json"
+    records_csv_path = output_dir / "surrogate_quality_records.csv"
+    summary_json_path = output_dir / "surrogate_quality_summary.json"
+    summary_csv_path = output_dir / "surrogate_quality_summary.csv"
+
+    save_records_as_json(records_json_path, {"records": records})
+    save_records_as_csv(records_csv_path, records)
+    save_records_as_json(summary_json_path, {"summary_records": summary_records})
+    save_records_as_csv(summary_csv_path, summary_records)
+
+    plot_paths = plot_summary_records(summary_records, output_dir)
+    plot_paths.extend(plot_sweep_records(summary_records, output_dir))
+
+    return {
+        "records": records,
+        "summary_records": summary_records,
+        "records_json_path": str(records_json_path),
+        "records_csv_path": str(records_csv_path),
+        "summary_json_path": str(summary_json_path),
+        "summary_csv_path": str(summary_csv_path),
+        "plot_paths": plot_paths,
+    }

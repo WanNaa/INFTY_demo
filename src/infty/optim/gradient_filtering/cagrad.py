@@ -9,6 +9,7 @@ class CAGrad(EasyCLMultiObjOptimizer):
         default_args = {
             "calpha": 0.1,
             "rescale": 0,
+            "task_id": 0,
         }
         merged_args = {**default_args, **args}
         args_ns = SimpleNamespace(**merged_args)
@@ -16,6 +17,7 @@ class CAGrad(EasyCLMultiObjOptimizer):
         self.name = "cagrad"
         self.calpha = args_ns.calpha
         self.rescale = args_ns.rescale
+        self.task_id = args_ns.task_id
 
     def step(self, closure=None, delay=False):
         if closure:
@@ -27,6 +29,8 @@ class CAGrad(EasyCLMultiObjOptimizer):
         task_num = len(loss_list)
         self._compute_grad_dim()
         grads = self._compute_grad(loss_list, mode='backward')
+        if task_num > 1:
+            self._append_similarity(self.get_similarity(grads))
         
         GG = torch.matmul(grads, grads.t()).cpu()
         g0_norm = (GG.mean()+1e-8).sqrt() 
@@ -54,6 +58,16 @@ class CAGrad(EasyCLMultiObjOptimizer):
             new_grads = g / (1 + self.calpha)
         else:
             raise ValueError('No support rescale type {}'.format(self.rescale))
+        if task_num > 1:
+            self._record_pairwise_conflicts(
+                grads,
+                task=self.task_id,
+                iteration=self._current_conflict_iteration(),
+                block=0,
+                update_vector=new_grads,
+                metadata={"calpha": float(self.calpha), "rescale": int(self.rescale)},
+            )
+            self._advance_conflict_iteration()
         self._reset_grad(new_grads)
         if not delay:
             self.base_optimizer.step()

@@ -76,9 +76,9 @@ class DataManager(object):
         data, targets = np.concatenate(data), np.concatenate(targets)
 
         if ret_data:
-            return data, targets, DummyDataset(data, targets, trsf, self.use_path)
+            return data, targets, ArrayDataset(data, targets, trsf, self.use_path)
         else:
-            return DummyDataset(data, targets, trsf, self.use_path)
+            return ArrayDataset(data, targets, trsf, self.use_path)
 
     def get_dataset_with_split(
         self, indices, source, mode, appendent=None, val_samples_per_class=0
@@ -132,9 +132,9 @@ class DataManager(object):
         )
         val_data, val_targets = np.concatenate(val_data), np.concatenate(val_targets)
 
-        return DummyDataset(
+        return ArrayDataset(
             train_data, train_targets, trsf, self.use_path
-        ), DummyDataset(val_data, val_targets, trsf, self.use_path)
+        ), ArrayDataset(val_data, val_targets, trsf, self.use_path)
 
     def _setup_data(self, dataset_name, shuffle, seed):
         idata = _get_idata(dataset_name, self.args)
@@ -188,7 +188,7 @@ class DataManager(object):
         return np.sum(np.where(y == index))
 
 
-class DummyDataset(Dataset):
+class ArrayDataset(Dataset):
     def __init__(self, images, labels, trsf, use_path=False):
         assert len(images) == len(labels), "Data size error!"
         self.images = images

@@ -7,6 +7,7 @@ from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from models.base import BaseLearner
+from utils.core import get_infty_optimizer
 from utils.inc_net import FOSTERNet
 from utils.toolkit import count_parameters, target2onehot, tensor2numpy
 
@@ -100,16 +101,24 @@ class Learner(BaseLearner):
         if hasattr(self._network, "module"):
             self._network_module_ptr = self._network.module
         if self._cur_task == 0:
-            optimizer = optim.SGD(
+            base_optimizer = optim.SGD(
                 filter(lambda p: p.requires_grad, self._network.parameters()),
                 momentum=0.9,
                 lr=self.args["init_lr"],
                 weight_decay=self.args["init_weight_decay"],
             )
+            run_args = {**self.args, "task_id": self._cur_task}
+            optimizer = get_infty_optimizer(
+                params=self._network.parameters(),
+                base_optimizer=base_optimizer,
+                model=self._network,
+                args=run_args,
+            )
             scheduler = optim.lr_scheduler.CosineAnnealingLR(
                 optimizer=optimizer, T_max=self.args["init_epochs"]
             )
             self._init_train(train_loader, test_loader, optimizer, scheduler)
+            optimizer.post_process(train_loader)
         else:
 
             cls_num_list = [self.samples_old_class] * self._known_classes + [
@@ -126,11 +135,18 @@ class Learner(BaseLearner):
             logging.info("per cls weights : {}".format(per_cls_weights))
             self.per_cls_weights = torch.FloatTensor(per_cls_weights).to(self._device)
 
-            optimizer = optim.SGD(
+            base_optimizer = optim.SGD(
                 filter(lambda p: p.requires_grad, self._network.parameters()),
                 lr=self.args["lr"],
                 momentum=0.9,
                 weight_decay=self.args["weight_decay"],
+            )
+            run_args = {**self.args, "task_id": self._cur_task}
+            optimizer = get_infty_optimizer(
+                params=self._network.parameters(),
+                base_optimizer=base_optimizer,
+                model=self._network,
+                args=run_args,
             )
             scheduler = optim.lr_scheduler.CosineAnnealingLR(
                 optimizer=optimizer, T_max=self.args["boosting_epochs"]
@@ -144,6 +160,7 @@ class Learner(BaseLearner):
             elif self.oofc != "ft":
                 assert 0, "not implemented"
             self._feature_boosting(train_loader, test_loader, optimizer, scheduler)
+            optimizer.post_process(train_loader)
             if self.is_teacher_wa:
                 self._network_module_ptr.weight_align(
                     self._known_classes,
@@ -166,6 +183,74 @@ class Learner(BaseLearner):
             self.per_cls_weights = torch.FloatTensor(per_cls_weights).to(self._device)
             self._feature_compression(train_loader, test_loader)
 
+    def _build_optimizer(self, base_optimizer, model):
+        run_args = {**self.args, "task_id": self._cur_task}
+        return get_infty_optimizer(
+            params=model.parameters(),
+            base_optimizer=base_optimizer,
+            model=model,
+            args=run_args,
+        )
+
+    def create_init_loss_fn(self, inputs, targets, model=None):
+        if model is None:
+            model = self._network
+
+        def loss_fn():
+            logits = model(inputs)["logits"]
+            loss = F.cross_entropy(logits, targets)
+            return logits, [loss]
+
+        return loss_fn
+
+    def create_feature_boosting_loss_fn(self, inputs, targets, model=None):
+        if model is None:
+            model = self._network
+
+        def loss_fn():
+            outputs = model(inputs)
+            logits, fe_logits, old_logits = (
+                outputs["logits"],
+                outputs["fe_logits"],
+                outputs["old_logits"].detach(),
+            )
+            loss_clf = F.cross_entropy(logits / self.per_cls_weights, targets)
+            loss_fe = F.cross_entropy(fe_logits, targets)
+            loss_kd = self.lambda_okd * _KD_loss(
+                logits[:, : self._known_classes], old_logits, self.args["T"]
+            )
+            return logits, [loss_clf, loss_fe, loss_kd]
+
+        return loss_fn
+
+    def create_feature_compression_loss_fn(
+        self, inputs, targets, student_model=None, teacher_model=None
+    ):
+        if student_model is None:
+            student_model = self._snet
+        if teacher_model is None:
+            teacher_model = self._network
+
+        def loss_fn():
+            dark_logits = student_model(inputs)["logits"]
+            with torch.no_grad():
+                logits = teacher_model(inputs)["logits"]
+            loss_dark = self.BKD(dark_logits, logits, self.args["T"])
+            return dark_logits, [loss_dark]
+
+        return loss_fn
+
+    def _register_oofc_gradient_mask(self):
+        if self.oofc == "ft":
+            return None
+        if self.oofc != "az":
+            assert 0, "not implemented"
+
+        fc_weight = next(self._network_module_ptr.fc.parameters())
+        mask = torch.ones_like(fc_weight)
+        mask[self._known_classes :, : self._network_module_ptr.out_dim] = 0.0
+        return fc_weight.register_hook(lambda grad, mask=mask: grad * mask)
+
     def _init_train(self, train_loader, test_loader, optimizer, scheduler):
         prog_bar = tqdm(range(self.args["init_epochs"]))
         for _, epoch in enumerate(prog_bar):
@@ -176,12 +261,9 @@ class Learner(BaseLearner):
                 inputs, targets = inputs.to(
                     self._device, non_blocking=True
                 ), targets.to(self._device, non_blocking=True)
-                logits = self._network(inputs)["logits"]
-                loss = F.cross_entropy(logits, targets)
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                losses += loss.item()
+                loss_fn = self.create_init_loss_fn(inputs, targets)
+                logits, loss_list = self._step_optimizer(optimizer, loss_fn)
+                losses += sum(loss_list)
                 _, preds = torch.max(logits, dim=1)
                 correct += preds.eq(targets.expand_as(preds)).cpu().sum()
                 total += len(targets)
@@ -212,77 +294,61 @@ class Learner(BaseLearner):
 
     def _feature_boosting(self, train_loader, test_loader, optimizer, scheduler):
         prog_bar = tqdm(range(self.args["boosting_epochs"]))
-        for _, epoch in enumerate(prog_bar):
-            self.train()
-            losses = 0.0
-            losses_clf = 0.0
-            losses_fe = 0.0
-            losses_kd = 0.0
-            correct, total = 0, 0
-            for i, (_, inputs, targets) in enumerate(train_loader):
-                inputs, targets = inputs.to(
-                    self._device, non_blocking=True
-                ), targets.to(self._device, non_blocking=True)
-                outputs = self._network(inputs)
-                logits, fe_logits, old_logits = (
-                    outputs["logits"],
-                    outputs["fe_logits"],
-                    outputs["old_logits"].detach(),
-                )
-                loss_clf = F.cross_entropy(logits / self.per_cls_weights, targets)
-                loss_fe = F.cross_entropy(fe_logits, targets)
-                loss_kd = self.lambda_okd * _KD_loss(
-                    logits[:, : self._known_classes], old_logits, self.args["T"]
-                )
-                loss = loss_clf + loss_fe + loss_kd
-                optimizer.zero_grad()
-                loss.backward()
-                if self.oofc == "az":
-                    for i, p in enumerate(self._network_module_ptr.fc.parameters()):
-                        if i == 0:
-                            p.grad.data[
-                                self._known_classes :,
-                                : self._network_module_ptr.out_dim,
-                            ] = torch.tensor(0.0)
-                elif self.oofc != "ft":
-                    assert 0, "not implemented"
-                optimizer.step()
-                losses += loss.item()
-                losses_fe += loss_fe.item()
-                losses_clf += loss_clf.item()
-                losses_kd += (
-                    self._known_classes / self._total_classes
-                ) * loss_kd.item()
-                _, preds = torch.max(logits, dim=1)
-                correct += preds.eq(targets.expand_as(preds)).cpu().sum()
-                total += len(targets)
-            scheduler.step()
-            train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
-            if epoch % 5 == 0:
-                test_acc = self._compute_accuracy(self._network, test_loader)
-                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Loss_clf {:.3f}, Loss_fe {:.3f}, Loss_kd {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
-                    self._cur_task,
-                    epoch + 1,
-                    self.args["boosting_epochs"],
-                    losses / len(train_loader),
-                    losses_clf / len(train_loader),
-                    losses_fe / len(train_loader),
-                    losses_kd / len(train_loader),
-                    train_acc,
-                    test_acc,
-                )
-            else:
-                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Loss_clf {:.3f}, Loss_fe {:.3f}, Loss_kd {:.3f}, Train_accy {:.2f}".format(
-                    self._cur_task,
-                    epoch + 1,
-                    self.args["boosting_epochs"],
-                    losses / len(train_loader),
-                    losses_clf / len(train_loader),
-                    losses_fe / len(train_loader),
-                    losses_kd / len(train_loader),
-                    train_acc,
-                )
-            prog_bar.set_description(info)
+        grad_mask_handle = self._register_oofc_gradient_mask()
+        try:
+            for _, epoch in enumerate(prog_bar):
+                self.train()
+                losses = 0.0
+                losses_clf = 0.0
+                losses_fe = 0.0
+                losses_kd = 0.0
+                correct, total = 0, 0
+                for i, (_, inputs, targets) in enumerate(train_loader):
+                    inputs, targets = inputs.to(
+                        self._device, non_blocking=True
+                    ), targets.to(self._device, non_blocking=True)
+                    loss_fn = self.create_feature_boosting_loss_fn(inputs, targets)
+                    logits, loss_list = self._step_optimizer(optimizer, loss_fn)
+                    loss_clf, loss_fe, loss_kd = loss_list
+                    losses += sum(loss_list)
+                    losses_fe += loss_fe
+                    losses_clf += loss_clf
+                    losses_kd += (
+                        self._known_classes / self._total_classes
+                    ) * loss_kd
+                    _, preds = torch.max(logits, dim=1)
+                    correct += preds.eq(targets.expand_as(preds)).cpu().sum()
+                    total += len(targets)
+                scheduler.step()
+                train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+                if epoch % 5 == 0:
+                    test_acc = self._compute_accuracy(self._network, test_loader)
+                    info = "Task {}, Epoch {}/{} => Loss {:.3f}, Loss_clf {:.3f}, Loss_fe {:.3f}, Loss_kd {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
+                        self._cur_task,
+                        epoch + 1,
+                        self.args["boosting_epochs"],
+                        losses / len(train_loader),
+                        losses_clf / len(train_loader),
+                        losses_fe / len(train_loader),
+                        losses_kd / len(train_loader),
+                        train_acc,
+                        test_acc,
+                    )
+                else:
+                    info = "Task {}, Epoch {}/{} => Loss {:.3f}, Loss_clf {:.3f}, Loss_fe {:.3f}, Loss_kd {:.3f}, Train_accy {:.2f}".format(
+                        self._cur_task,
+                        epoch + 1,
+                        self.args["boosting_epochs"],
+                        losses / len(train_loader),
+                        losses_clf / len(train_loader),
+                        losses_fe / len(train_loader),
+                        losses_kd / len(train_loader),
+                        train_acc,
+                    )
+                prog_bar.set_description(info)
+        finally:
+            if grad_mask_handle is not None:
+                grad_mask_handle.remove()
         logging.info(info)
 
     def _feature_compression(self, train_loader, test_loader):
@@ -299,11 +365,12 @@ class Learner(BaseLearner):
             self._network_module_ptr.backbones[0].state_dict()
         )
         self._snet_module_ptr.copy_fc(self._network_module_ptr.oldfc)
-        optimizer = optim.SGD(
+        base_optimizer = optim.SGD(
             filter(lambda p: p.requires_grad, self._snet.parameters()),
             lr=self.args["lr"],
             momentum=0.9,
         )
+        optimizer = self._build_optimizer(base_optimizer, self._snet)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(
             optimizer=optimizer, T_max=self.args["compression_epochs"]
         )
@@ -317,20 +384,9 @@ class Learner(BaseLearner):
                 inputs, targets = inputs.to(
                     self._device, non_blocking=True
                 ), targets.to(self._device, non_blocking=True)
-                dark_logits = self._snet(inputs)["logits"]
-                with torch.no_grad():
-                    outputs = self._network(inputs)
-                    logits, old_logits, fe_logits = (
-                        outputs["logits"],
-                        outputs["old_logits"],
-                        outputs["fe_logits"],
-                    )
-                loss_dark = self.BKD(dark_logits, logits, self.args["T"])
-                loss = loss_dark
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                losses += loss.item()
+                loss_fn = self.create_feature_compression_loss_fn(inputs, targets)
+                dark_logits, loss_list = self._step_optimizer(optimizer, loss_fn)
+                losses += sum(loss_list)
                 _, preds = torch.max(dark_logits[: targets.shape[0]], dim=1)
                 correct += preds.eq(targets.expand_as(preds)).cpu().sum()
                 total += len(targets)
@@ -356,6 +412,7 @@ class Learner(BaseLearner):
                 )
             prog_bar.set_description(info)
         logging.info(info)
+        optimizer.post_process(train_loader)
         if len(self._multiple_gpus) > 1:
             self._snet = self._snet.module
         if self.is_student_wa:
@@ -384,6 +441,10 @@ class Learner(BaseLearner):
         logging.info("darknet eval: ")
         logging.info("CNN top1 curve: {}".format(cnn_accy["top1"]))
         logging.info("CNN top5 curve: {}".format(cnn_accy["top5"]))
+
+    def _step_optimizer(self, optimizer, loss_fn):
+        optimizer.set_closure(loss_fn)
+        return optimizer.step()
 
     @property
     def samples_old_class(self):

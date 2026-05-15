@@ -5,21 +5,55 @@ import numpy as np
 import torch
 
 from .paths import DEFAULT_CONFLICTS_DIR, ensure_parent_dir
+from .source_utils import resolve_similarity_values, resolve_source_name
+from .visualize_conflict_diagnostics import visualize_conflict_diagnostics
 
 
 DEFAULT_OUTPUT_DIR = DEFAULT_CONFLICTS_DIR
 
 
-def _get_similarity_values(optimizer):
-    sim_values = getattr(optimizer, "sim_list", None)
+def _get_similarity_values(source=None, sim_values=None):
+    sim_values = resolve_similarity_values(source=source, sim_values=sim_values)
     if sim_values is None:
-        sim_values = getattr(optimizer, "sim_arr", None)
-    if sim_values is None:
-        raise AttributeError("optimizer must expose sim_list or sim_arr for conflict visualization")
+        raise AttributeError("source must expose sim_list/sim_arr, or sim_values must be provided")
     return np.asarray([float(value) for value in sim_values], dtype=np.float32)
 
 
-def visualize_conflicts(optimizer, task=None, output_dir=None, task_id=None, dir_path=None):
+def _derive_similarity_values_from_conflict_records(conflict_records, task):
+    if not conflict_records:
+        return np.asarray([], dtype=np.float32)
+
+    target_task = int(task)
+    values = []
+    for record in conflict_records:
+        record_task = int(record.get("task", target_task))
+        if record_task != target_task:
+            continue
+        values.append(float(record.get("cos_before", record.get("similarity", 0.0))))
+    return np.asarray(values, dtype=np.float32)
+
+
+def _has_conflict_records(source, task):
+    conflict_records = getattr(source, "conflict_records", None)
+    if not conflict_records:
+        return False
+    if task is None:
+        return True
+    target_task = int(task)
+    return any(int(record.get("task", target_task)) == target_task for record in conflict_records)
+
+
+def visualize_conflicts(
+    optimizer=None,
+    task=None,
+    output_dir=None,
+    task_id=None,
+    dir_path=None,
+    *,
+    source_name=None,
+    sim_values=None,
+    conflict_records=None,
+):
     if task is None:
         task = task_id if task_id is not None else 0
     if output_dir is None:
@@ -28,13 +62,35 @@ def visualize_conflicts(optimizer, task=None, output_dir=None, task_id=None, dir
     output_dir = Path(output_dir) if output_dir is not None else DEFAULT_OUTPUT_DIR
     output_dir = output_dir.expanduser().resolve()
 
-    optimizer_name = getattr(optimizer, "name", optimizer.__class__.__name__.lower())
+    optimizer_name = resolve_source_name(source=optimizer, source_name=source_name, default="custom")
     save_dir = output_dir / optimizer_name
 
-    sim_values = _get_similarity_values(optimizer)
+    if sim_values is None:
+        try:
+            sim_values = _get_similarity_values(source=optimizer, sim_values=sim_values)
+        except AttributeError:
+            if conflict_records is not None:
+                sim_values = _derive_similarity_values_from_conflict_records(conflict_records, task)
+            elif optimizer is not None and getattr(optimizer, "conflict_records", None):
+                sim_values = _derive_similarity_values_from_conflict_records(optimizer.conflict_records, task)
+            else:
+                raise
+    else:
+        sim_values = _get_similarity_values(source=optimizer, sim_values=sim_values)
     sim_path = save_dir / f"sim_list_task{task}.pt"
     ensure_parent_dir(sim_path)
     torch.save(sim_values.tolist(), sim_path)
+
+    if conflict_records is not None or (optimizer is not None and _has_conflict_records(optimizer, task)):
+        result = visualize_conflict_diagnostics(
+            optimizer,
+            task=task,
+            output_dir=output_dir,
+            source_name=source_name,
+            conflict_records=conflict_records,
+        )
+        result["sim_path"] = str(sim_path)
+        return result
 
     if task <= 0:
         return {"optimizer_name": optimizer_name, "task": int(task), "sim_path": str(sim_path)}

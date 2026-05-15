@@ -32,7 +32,6 @@ class UniGrad_FS(EasyCLMultiObjOptimizer):
         else:
             self.perturb_eps = args_ns.perturb_eps
         self.adaptive = args_ns.adaptive
-        self.sim_arr = []
 
     def _ensure_similarity_thresholds(self, size):
         if self.S_T.numel() == size:
@@ -55,10 +54,6 @@ class UniGrad_FS(EasyCLMultiObjOptimizer):
         else:
             raise ValueError(f'Unsupported utype: {self.utype}. Must be "model-wise" or "layer-wise"')
         self._ensure_similarity_thresholds(len(self.k_idx))
-
-    @property
-    def sim_list(self):
-        return self.sim_arr
 
     @torch.no_grad()
     def perturb_weights(self):
@@ -118,17 +113,22 @@ class UniGrad_FS(EasyCLMultiObjOptimizer):
             if len(loss_list) != 2:
                 raise ValueError("UniGrad_FS only supports two losses: old_loss and new_loss")
             uni_grads = grads.clone()
+            iteration = self._current_conflict_iteration()
             for k in range(len(self.k_idx)):
                 beg, end = sum(self.k_idx[:k]), sum(self.k_idx[:k + 1])
                 if end == -1:
                     end = grads.size()[-1]
-                g1 = uni_grads[0, beg:end]
-                g2 = uni_grads[1, beg:end]
+                g1 = uni_grads[0, beg:end].clone()
+                g2 = uni_grads[1, beg:end].clone()
                 norm_g1 = g1.norm()
                 norm_g2 = g2.norm()
                 s_t = torch.dot(g1, g2) / (norm_g1 * norm_g2 + 1e-8)
-                self.sim_arr.append(s_t.cpu().numpy())
+                self._append_similarity(s_t)
                 S_T = self.S_T[k]
+                g1_new = g1
+                g2_new = g2
+                w1 = torch.zeros((), dtype=g1.dtype, device=g1.device)
+                w2 = torch.zeros((), dtype=g2.dtype, device=g2.device)
                 if s_t < S_T:
                     w1 = norm_g1 * (S_T * torch.sqrt(1 - s_t ** 2) - s_t * torch.sqrt(1 - S_T ** 2)) / (
                         norm_g2 * torch.sqrt(1 - S_T ** 2) + 1e-8
@@ -136,9 +136,24 @@ class UniGrad_FS(EasyCLMultiObjOptimizer):
                     w2 = norm_g2 * (S_T * torch.sqrt(1 - s_t ** 2) - s_t * torch.sqrt(1 - S_T ** 2)) / (
                         norm_g1 * torch.sqrt(1 - S_T ** 2) + 1e-8
                     )
-                    uni_grads[0, beg:end] = g1 + g2 * w1
-                    uni_grads[1, beg:end] = g2 + g1 * w2
+                    g1_new = g1 + g2 * w1
+                    g2_new = g2 + g1 * w2
+                    uni_grads[0, beg:end] = g1_new
+                    uni_grads[1, beg:end] = g2_new
                     self.S_T[k] = (1 - self.beta) * S_T + self.beta * s_t
+                self._record_conflict_pair(
+                    g1,
+                    g2,
+                    block=k,
+                    threshold=S_T,
+                    task=self.task_id,
+                    iteration=iteration,
+                    g_old_after=g1_new,
+                    g_new_after=g2_new,
+                    w1=w1,
+                    w2=w2,
+                )
+            self._advance_conflict_iteration()
             new_grads = uni_grads.sum(0)
             self._reset_grad(new_grads)
         if not delay:

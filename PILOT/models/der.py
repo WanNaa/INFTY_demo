@@ -8,6 +8,7 @@ from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from models.base import BaseLearner
+from utils.core import get_infty_optimizer
 from utils.inc_net import DERNet, IncrementalNet
 from utils.toolkit import count_parameters, target2onehot, tensor2numpy
 
@@ -81,22 +82,36 @@ class Learner(BaseLearner):
     def _train(self, train_loader, test_loader):
         self._network.to(self._device)
         if self._cur_task == 0:
-            optimizer = optim.SGD(
+            base_optimizer = optim.SGD(
                 filter(lambda p: p.requires_grad, self._network.parameters()),
                 momentum=0.9,
                 lr=self.args["init_lr"],
                 weight_decay=self.args["init_weight_decay"],
+            )
+            run_args = {**self.args, "task_id": self._cur_task}
+            optimizer = get_infty_optimizer(
+                params=self._network.parameters(),
+                base_optimizer=base_optimizer,
+                model=self._network,
+                args=run_args,
             )
             scheduler = optim.lr_scheduler.MultiStepLR(
                 optimizer=optimizer, milestones=self.args["init_milestones"], gamma=self.args["init_lr_decay"]
             )
             self._init_train(train_loader, test_loader, optimizer, scheduler)
         else:
-            optimizer = optim.SGD(
+            base_optimizer = optim.SGD(
                 filter(lambda p: p.requires_grad, self._network.parameters()),
                 lr=self.args["lrate"],
                 momentum=0.9,
                 weight_decay=self.args["weight_decay"],
+            )
+            run_args = {**self.args, "task_id": self._cur_task}
+            optimizer = get_infty_optimizer(
+                params=self._network.parameters(),
+                base_optimizer=base_optimizer,
+                model=self._network,
+                args=run_args,
             )
             scheduler = optim.lr_scheduler.MultiStepLR(
                 optimizer=optimizer, milestones=self.args["milestones"], gamma=self.args["lrate_decay"]
@@ -108,6 +123,31 @@ class Learner(BaseLearner):
             #     )
             # else:
             #     self._network.weight_align(self._total_classes - self._known_classes)
+        optimizer.post_process(train_loader)
+
+    def create_loss_fn(self, inputs, targets, model=None):
+        if model is None:
+            model = self._network
+
+        def loss_fn():
+            outputs = model(inputs)
+            logits = outputs["logits"]
+            if self._cur_task == 0:
+                loss_clf = F.cross_entropy(logits, targets)
+                return logits, [loss_clf]
+
+            aux_logits = outputs["aux_logits"]
+            loss_clf = F.cross_entropy(logits, targets)
+            aux_targets = targets.clone()
+            aux_targets = torch.where(
+                aux_targets - self._known_classes + 1 > 0,
+                aux_targets - self._known_classes + 1,
+                0,
+            )
+            loss_aux = F.cross_entropy(aux_logits, aux_targets)
+            return logits, [loss_clf, loss_aux]
+
+        return loss_fn
 
     def _init_train(self, train_loader, test_loader, optimizer, scheduler):
         prog_bar = tqdm(range(self.args["init_epoch"]))
@@ -117,13 +157,9 @@ class Learner(BaseLearner):
             correct, total = 0, 0
             for i, (_, inputs, targets) in enumerate(train_loader):
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
-                logits = self._network(inputs)["logits"]
-
-                loss = F.cross_entropy(logits, targets)
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                losses += loss.item()
+                loss_fn = self.create_loss_fn(inputs, targets)
+                logits, loss_list = self._step_optimizer(optimizer, loss_fn)
+                losses += sum(loss_list)
 
                 _, preds = torch.max(logits, dim=1)
                 correct += preds.eq(targets.expand_as(preds)).cpu().sum()
@@ -164,24 +200,12 @@ class Learner(BaseLearner):
             correct, total = 0, 0
             for i, (_, inputs, targets) in enumerate(train_loader):
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
-                outputs = self._network(inputs)
-                logits, aux_logits = outputs["logits"], outputs["aux_logits"]
-                loss_clf = F.cross_entropy(logits, targets)
-                aux_targets = targets.clone()
-                aux_targets = torch.where(
-                    aux_targets - self._known_classes + 1 > 0,
-                    aux_targets - self._known_classes + 1,
-                    0,
-                )
-                loss_aux = F.cross_entropy(aux_logits, aux_targets)
-                loss = loss_clf + loss_aux
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                losses += loss.item()
-                losses_aux += loss_aux.item()
-                losses_clf += loss_clf.item()
+                loss_fn = self.create_loss_fn(inputs, targets)
+                logits, loss_list = self._step_optimizer(optimizer, loss_fn)
+                loss_clf, loss_aux = loss_list
+                losses += sum(loss_list)
+                losses_aux += loss_aux
+                losses_clf += loss_clf
 
                 _, preds = torch.max(logits, dim=1)
                 correct += preds.eq(targets.expand_as(preds)).cpu().sum()
@@ -213,3 +237,7 @@ class Learner(BaseLearner):
                 )
             prog_bar.set_description(info)
         logging.info(info)
+
+    def _step_optimizer(self, optimizer, loss_fn):
+        optimizer.set_closure(loss_fn)
+        return optimizer.step()

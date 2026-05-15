@@ -6,8 +6,8 @@ Use this checklist before publishing a new INFTY package or paper artifact.
 
 - [ ] All tests pass.
 - [ ] Public APIs import correctly.
-- [ ] Optimizer smoke tests run on CPU.
-- [ ] Plot smoke tests run with small grids.
+- [ ] Optimizer regression tests run on CPU.
+- [ ] Plot regression tests run with small grids.
 - [ ] Example scripts run or are clearly marked as requiring benchmark data.
 
 ## Documentation
